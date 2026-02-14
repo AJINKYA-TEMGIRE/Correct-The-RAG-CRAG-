@@ -15,5 +15,15 @@ load_dotenv()
 
 llm = ChatGroq(model = "openai/gpt-oss-120b")
 
-print(llm.invoke("What is the capital of India?"))
+documents = (
+    PyPDFLoader("./Books/book1.pdf").load()
+    + PyPDFLoader("./Books/book2.pdf").load()
+    + PyPDFLoader("./Books/book3.pdf").load()
+)
+
+chunks = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=150).split_documents(documents)
+for d in chunks:
+    d.page_content = d.page_content.encode("utf-8", "ignore").decode("utf-8", "ignore")
+
+
 
