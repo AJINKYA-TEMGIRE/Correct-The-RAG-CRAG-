@@ -16,7 +16,7 @@ load_dotenv()
 llm = ChatGroq(model = "openai/gpt-oss-120b")
 emb = HuggingFaceEmbeddings(model_name = "sentence-transformers/all-MiniLM-L6-v2")
 
-flag = False # currently
+flag = True # currently
 
 if flag == False:
     documents = (
@@ -38,3 +38,16 @@ retriever = database.as_retriever(
     search_type = "similarity",
     search_kwargs = {"k" : 5}
 )
+
+
+class State(TypedDict):
+    questions : str
+    docs : List[Document]
+    strips : List[str]
+    kept : List[str]
+    refined_context : str
+    answer : str
+
+
+
+
