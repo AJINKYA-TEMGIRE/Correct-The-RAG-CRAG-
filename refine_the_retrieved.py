@@ -41,13 +41,92 @@ retriever = database.as_retriever(
 
 
 class State(TypedDict):
-    questions : str
+    question : str
     docs : List[Document]
     strips : List[str]
     kept : List[str]
     refined_context : str
     answer : str
 
+def retrieve(state : State) -> State:
+    q = state["question"]
+    result  = retriever.invoke(q)
+    return {"docs" : result}
 
+def refine(state: State) -> State:
+
+    content = "\n\n".join(d.page_content for d in state["docs"]).strip()
+    def decompose_to_sentences(text: str) -> List[str]:
+        text = re.sub(r"\s+", " ", text).strip()
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        return [s.strip() for s in sentences if len(s.strip()) > 20]
+    
+    strips = decompose_to_sentences(content)
+
+    class KeeporDrop(BaseModel):
+        keep : bool
+
+    filter_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are a strict relevance filter.\n"
+            "Return keep=true only if the sentence directly helps answer the question.\n"
+            "Use ONLY the sentence. Output JSON only.",
+        ),
+        ("human", "Question: {question}\n\nSentence:\n{sentence}"),
+    ]
+    )
+
+    chain = filter_prompt | llm.with_structured_output(KeeporDrop)
+    kept : List[str] = []
+    for s in strips:
+        r = chain.invoke({"question" : state["question"] , "sentence" : s})
+        if r.keep:
+            kept.append(s)
+
+    refined = "\n".join(kept)
+
+    return {
+        "kept" : kept,
+        "refined_context": refined,    
+        "strips" : strips}
+
+
+def generate(state : State) -> State:
+    answer_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are a helpful ML tutor. Answer ONLY using the provided refined bullets.\n"
+            "If the bullets are empty or insufficient, say: 'I don't know based on the provided books.'",
+        ),
+        ("human", "Question: {question}\n\nRefined context:\n{refined_context}"),
+    ]
+    )
+    out = (answer_prompt | llm).invoke({"question": state["question"], "refined_context": state['refined_context']})
+    return {"answer" :  out.content}
+
+g = StateGraph(State)
+g.add_node("retrieve", retrieve)
+g.add_node("refine", refine)
+g.add_node("generate", generate)
+
+g.add_edge(START, "retrieve")
+g.add_edge("retrieve", "refine")
+g.add_edge("refine", "generate")
+g.add_edge("generate", END)
+
+app = g.compile()
+
+res = app.invoke({
+    "question": "Explain the bias–variance tradeoff",
+    "docs": [],
+    "strips": [],
+    "kept_strips": [],
+    "refined_context": "",
+    "answer": ""
+})
+print(res["answer"])
 
 
